@@ -11,8 +11,8 @@
   "scripts": {
     "dev:frontend": "parcel src/public/index.html --dist-dir dist",
     "dev:backend": "node --experimental-strip-types --watch src/server.ts",
-    "build": "parcel build src/public/index.html --dist-dir dist",
-    "start": "node src/server.ts"
+    "build": "tsc && parcel build src/public/index.html --dist-dir dist",
+    "start": "node dist-server/server.js"
   },
   "dependencies": {
     "@types/uuid": "^10.0",
@@ -30,6 +30,7 @@
     "parcel": "^2.16",
     "supertest": "^7.2",
     "ts-jest": "^29.4",
-    "ts-node": "^10.9"
+    "ts-node": "^10.9",
+    "typescript": "^5.8"
   }
 }
