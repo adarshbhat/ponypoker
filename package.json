@@ -1,0 +1,35 @@
+{
+  "name": "ponypoker-backend",
+  "version": "1.0.0",
+  "description": "",
+  "license": "ISC",
+  "author": "Adarsh Bhat",
+  "type": "module",
+  "engines": {
+    "node": ">=24.0.0"
+  },
+  "scripts": {
+    "dev:frontend": "parcel src/public/index.html --dist-dir dist",
+    "dev:backend": "node --experimental-strip-types --watch src/server.ts",
+    "build": "parcel build src/public/index.html --dist-dir dist",
+    "start": "node src/server.ts"
+  },
+  "dependencies": {
+    "@types/uuid": "^10.0",
+    "@types/ws": "^8.18",
+    "express": "^5.2",
+    "uuid": "^13.0",
+    "ws": "^8.19"
+  },
+  "devDependencies": {
+    "@types/express": "^5.0",
+    "@types/jest": "^30.0",
+    "@types/node": "^25.0",
+    "@types/supertest": "^6.0",
+    "jest": "^30.2",
+    "parcel": "^2.16",
+    "supertest": "^7.2",
+    "ts-jest": "^29.4",
+    "ts-node": "^10.9"
+  }
+}

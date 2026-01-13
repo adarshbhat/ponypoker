@@ -1,0 +1,123 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Pony Poker</title>
+    <link rel="stylesheet" href="./styles.css">
+</head>
+<body>
+    <header>
+        <h1>🎠 Pony Poker</h1>
+        <div id="connection-status" class="status-indicator"></div>
+    </header>
+
+    <main>
+        <!-- Join Screen -->
+        <section id="join-screen" class="screen active">
+            <div class="card join-card">
+                <h2>Join a Session</h2>
+                <form id="join-form">
+                    <div class="form-group">
+                        <label for="user-name">Your Name</label>
+                        <input type="text" id="user-name" required placeholder="Enter your name">
+                    </div>
+                    <div class="form-group">
+                        <label for="team-code">Team</label>
+                        <select id="team-code" required>
+                            <option value="never-ponies" selected>Never Ponies</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label>Role</label>
+                        <div class="role-selector">
+                            <label class="role-option">
+                                <input type="radio" name="role" value="player" checked>
+                                <span class="role-label">🃏 Player</span>
+                            </label>
+                            <label class="role-option">
+                                <input type="radio" name="role" value="observer">
+                                <span class="role-label">👁️ Observer</span>
+                            </label>
+                        </div>
+                    </div>
+                    <button type="submit" class="btn btn-primary">Join Session</button>
+                </form>
+            </div>
+        </section>
+
+        <!-- Session Screen -->
+        <section id="session-screen" class="screen">
+            <div class="session-layout">
+                <!-- Sidebar: Team Members -->
+                <aside class="sidebar">
+                    <div class="card">
+                        <h3>Team Members</h3>
+                        <ul id="members-list" class="members-list"></ul>
+                    </div>
+                    <button id="leave-btn" class="btn btn-secondary">Leave Session</button>
+                </aside>
+
+                <!-- Main Content -->
+                <div class="main-content">
+                    <!-- Tickets Section -->
+                    <div class="card tickets-section">
+                        <div class="section-header">
+                            <h3>Tickets</h3>
+                            <button id="add-ticket-btn" class="btn btn-small">+ Add Ticket</button>
+                        </div>
+                        <ul id="tickets-list" class="tickets-list"></ul>
+                    </div>
+
+                    <!-- Voting Section -->
+                    <div id="voting-section" class="card voting-section hidden">
+                        <h3>Vote on: <span id="selected-ticket-title"></span></h3>
+                        <p id="selected-ticket-description" class="ticket-description"></p>
+                        
+                        <div id="vote-status" class="vote-status"></div>
+                        
+                        <div id="point-cards" class="point-cards"></div>
+                        
+                        <div class="voting-actions">
+                            <button id="reveal-btn" class="btn btn-secondary">Reveal Votes</button>
+                            <button id="reset-btn" class="btn btn-secondary">Reset Votes</button>
+                        </div>
+
+                        <div id="results-section" class="results-section hidden">
+                            <h4>Results</h4>
+                            <div id="votes-display" class="votes-display"></div>
+                            <div id="average-display" class="average-display"></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+    </main>
+
+    <!-- Add Ticket Modal -->
+    <div id="add-ticket-modal" class="modal hidden">
+        <div class="modal-content card">
+            <h3>Add New Ticket</h3>
+            <form id="add-ticket-form">
+                <div class="form-group">
+                    <label for="ticket-title">Title</label>
+                    <input type="text" id="ticket-title" required placeholder="Ticket title">
+                </div>
+                <div class="form-group">
+                    <label for="ticket-description">Description</label>
+                    <textarea id="ticket-description" placeholder="Ticket description"></textarea>
+                </div>
+                <div class="modal-actions">
+                    <button type="button" id="cancel-ticket-btn" class="btn btn-secondary">Cancel</button>
+                    <button type="submit" class="btn btn-primary">Add Ticket</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Error Toast -->
+    <div id="error-toast" class="toast hidden"></div>
+
+    <script type="module" src="./app.ts"></script>
+</body>
+</html>
