@@ -343,7 +343,7 @@ if (import.meta.url === `file:///${process.argv[1].replace(/\\/g, '/')}`) {
     
     const portEnv = process.env.PORT || '3000'
     const port = parseInt(portEnv as string, 10) || 3000
-    server.listen(port, () => {
+    server.listen(port, '0.0.0.0', () => {
         console.log(`Pony Poker server listening on port ${port}`)
     })
 }
