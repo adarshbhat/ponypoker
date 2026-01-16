@@ -70,7 +70,7 @@ function getElement<T extends HTMLElement>(id: string): T | null {
 // WebSocket Connection
 export function connectWebSocket(): WebSocket {
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
-    const wsUrl = `${protocol}//${window.location.host}/api`
+    const wsUrl = `${protocol}//${window.location.host}`
     const ws = new WebSocket(wsUrl)
     
     ws.onopen = () => {

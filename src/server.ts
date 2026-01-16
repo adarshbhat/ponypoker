@@ -334,16 +334,14 @@ export function setupWebSocket(wss: WebSocketServer): void {
     })
 }
 
-if (import.meta.url === `file:///${process.argv[1].replace(/\\/g, '/')}`) {
-    const app = createApp()
-    const server = createServer(app)
-    const wss = new WebSocketServer({ server })
-    
-    setupWebSocket(wss)
-    
-    const portEnv = process.env.PORT || '3000'
-    const port = parseInt(portEnv as string, 10) || 3000
-    server.listen(port, '0.0.0.0', () => {
-        console.log(`Pony Poker server listening on port ${port}`)
-    })
-}
+
+const app: Application = createApp()
+const server = createServer(app)
+const wss = new WebSocketServer({ server })
+
+setupWebSocket(wss)
+
+const port = 3000
+server.listen(port, '0.0.0.0', () => {
+    console.log(`Pony Poker server listening on port ${port}`)
+})

@@ -1,4 +1,4 @@
-# Pony Poker
+# Never Pony Poker
 A poker app used to add story points to tickets by a Scrum team
 
 ## Technology platform
@@ -23,3 +23,8 @@ A poker app used to add story points to tickets by a Scrum team
 **Frontend**
 - Parcel as build tool
 - To run, `npm run dev:frontend`. 
+
+### Build and run
+1. npm ci
+2. npm run build
+3. npm start
