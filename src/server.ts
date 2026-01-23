@@ -41,7 +41,7 @@ export type ServerMessage =
     | { type: 'userLeft'; userId: string }
     | { type: 'ticketAdded'; ticket: Ticket }
     | { type: 'ticketSelected'; ticketId: string }
-    | { type: 'voteReceived'; ticketId: string; votedCount: number; totalPlayers: number }
+    | { type: 'voteReceived'; ticketId: string; votedCount: number; totalPlayers: number; voterId?: string }
     | { type: 'votesRevealed'; ticket: Ticket; average: number }
     | { type: 'votesReset'; ticketId: string }
     | { type: 'error'; message: string }
@@ -223,7 +223,8 @@ export function handleMessage(ws: WebSocket, message: ClientMessage, wss: WebSoc
                 type: 'voteReceived',
                 ticketId: ticket.id,
                 votedCount,
-                totalPlayers
+                totalPlayers,
+                voterId: clientInfo.userId
             }, wss)
             
             // Auto-reveal if all players voted

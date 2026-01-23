@@ -28,7 +28,7 @@ export type ServerMessage =
     | { type: 'userLeft'; userId: string }
     | { type: 'ticketAdded'; ticket: Ticket }
     | { type: 'ticketSelected'; ticketId: string }
-    | { type: 'voteReceived'; ticketId: string; votedCount: number; totalPlayers: number }
+    | { type: 'voteReceived'; ticketId: string; votedCount: number; totalPlayers: number; voterId?: string }
     | { type: 'votesRevealed'; ticket: Ticket; average: number }
     | { type: 'votesReset'; ticketId: string }
     | { type: 'error'; message: string }
@@ -43,6 +43,16 @@ export type ClientMessage =
 
 const POINT_VALUES = [1, 2, 3, 5, 8, 13]
 
+type SuitName = 'spades' | 'hearts' | 'clubs' | 'diamonds'
+
+interface CardVisual {
+    label: string
+    suitSymbol: string
+    color: 'red' | 'black'
+    pipPositions: Array<{ x: number; y: number }>
+    isFace: boolean
+}
+
 // App State
 export interface AppState {
     ws: WebSocket | null
@@ -51,6 +61,7 @@ export interface AppState {
     myVote: number | null
     votedCount: number
     totalPlayers: number
+    votedUsers: Record<string, boolean>
 }
 
 export const state: AppState = {
@@ -60,6 +71,7 @@ export const state: AppState = {
     myVote: null,
     votedCount: 0,
     totalPlayers: 0
+    ,votedUsers: {}
 }
 
 // DOM Elements
@@ -131,6 +143,7 @@ export function handleServerMessage(message: ServerMessage): void {
             try { localStorage.setItem('ponypoker_userId', message.userId) } catch {}
             state.myVote = null
             state.votedCount = 0
+            state.votedUsers = {}
             state.totalPlayers = message.session.users.filter(u => u.role === 'player').length
             showScreen('session-screen')
             renderMembers()
@@ -158,6 +171,10 @@ export function handleServerMessage(message: ServerMessage): void {
             if (state.session) {
                 state.session.users = state.session.users.filter(u => u.id !== message.userId)
                 state.totalPlayers = state.session.users.filter(u => u.role === 'player').length
+                // remove from votedUsers if present
+                if (state.votedUsers && state.votedUsers[message.userId]) {
+                    delete state.votedUsers[message.userId]
+                }
                 renderMembers()
                 updateVoteStatus()
                 updateObserverControls()
@@ -177,15 +194,21 @@ export function handleServerMessage(message: ServerMessage): void {
                 state.session.votingRevealed = false
                 state.myVote = null
                 state.votedCount = 0
+                state.votedUsers = {}
                 renderTickets()
                 updateVotingSection()
                 updateObserverControls()
+                renderMembers()
             }
             break
             
         case 'voteReceived':
             state.votedCount = message.votedCount
             state.totalPlayers = message.totalPlayers
+            if (message.voterId) {
+                state.votedUsers = state.votedUsers || {}
+                state.votedUsers[message.voterId] = true
+            }
             updateVoteStatus()
             renderMembers()
             break
@@ -198,6 +221,8 @@ export function handleServerMessage(message: ServerMessage): void {
                     ticket.votes = message.ticket.votes
                 }
                 showResults(message.ticket, message.average)
+                // clear in-progress voted markers since actual votes are visible now
+                state.votedUsers = {}
             }
             break
             
@@ -210,6 +235,7 @@ export function handleServerMessage(message: ServerMessage): void {
                 state.session.votingRevealed = false
                 state.myVote = null
                 state.votedCount = 0
+                state.votedUsers = {}
                 updateVotingSection()
                 renderMembers()
             }
@@ -231,15 +257,26 @@ function showScreen(screenId: string): void {
 
 export function renderMembers(): void {
     const listEl = getElement<HTMLUListElement>('members-list')
-    if (!listEl || !state.session) return
-    
-    listEl.innerHTML = state.session.users.map(user => {
-        const hasVoted = state.session?.selectedTicketId 
-            ? state.session.tickets.find(t => t.id === state.session?.selectedTicketId)?.votes[user.id] !== undefined
-            : false
-        const voteIndicator = user.role === 'player' 
-            ? (hasVoted || (state.session?.votingRevealed && state.myVote && user.id === state.userId) ? '✅' : '⏳')
-            : ''
+    const session = state.session
+    if (!listEl || !session) return
+
+    listEl.innerHTML = session.users.map(user => {
+        const ticketSelected = Boolean(session.selectedTicketId)
+        const ticket = ticketSelected ? session.tickets.find(t => t.id === session.selectedTicketId) : null
+        const hasVoted = Boolean(state.votedUsers && state.votedUsers[user.id]) || (session.votingRevealed && ticket ? (ticket.votes[user.id] !== undefined && ticket.votes[user.id] !== null) : false)
+
+        let voteIndicator = ''
+        if (user.role === 'observer') {
+            voteIndicator = '👀'
+        } else if (!ticketSelected) {
+            voteIndicator = ''
+        } else if (state.session?.votingRevealed) {
+            voteIndicator = '✅'
+        } else if (hasVoted) {
+            voteIndicator = '✅'
+        } else {
+            voteIndicator = '⏳'
+        }
         const isMe = user.id === state.userId
         
         return `
@@ -255,9 +292,9 @@ export function renderMembers(): void {
 export function renderTickets(): void {
     const listEl = getElement<HTMLUListElement>('tickets-list')
     if (!listEl || !state.session) return
-    
+    const isObserver = isCurrentObserver()
+
     if (state.session.tickets.length === 0) {
-        const isObserver = isCurrentObserver()
         const message = isObserver
             ? 'No tickets yet. Add one to get started!'
             : 'No tickets yet. Please wait for the observer to add tickets.'
@@ -265,17 +302,34 @@ export function renderTickets(): void {
         listEl.innerHTML = `<li class="empty-state">${message}</li>`
         return
     }
-    
-    listEl.innerHTML = state.session.tickets.map(ticket => `
+
+    // Players should only see the currently selected ticket; observers see all tickets
+    let ticketsToRender: Ticket[] = []
+    if (isObserver) {
+        ticketsToRender = state.session.tickets
+    } else {
+        const selectedId = state.session.selectedTicketId
+        if (!selectedId) {
+            listEl.innerHTML = `<li class="empty-state">Please wait for the observer to select a ticket.</li>`
+            return
+        }
+        const sel = state.session.tickets.find(t => t.id === selectedId)
+        if (!sel) {
+            listEl.innerHTML = `<li class="empty-state">Selected ticket not found.</li>`
+            return
+        }
+        ticketsToRender = [sel]
+    }
+
+    listEl.innerHTML = ticketsToRender.map(ticket => `
         <li class="${ticket.id === state.session?.selectedTicketId ? 'selected' : ''}" 
             data-ticket-id="${ticket.id}">
             <div class="ticket-title">${escapeHtml(ticket.title)}</div>
             ${ticket.description ? `<div class="ticket-desc">${escapeHtml(ticket.description)}</div>` : ''}
         </li>
     `).join('')
-    
-    // Add click handlers
-    const isObserver = isCurrentObserver()
+
+    // Only observers get click-to-select behavior
     if (isObserver) {
         listEl.querySelectorAll('li[data-ticket-id]').forEach(li => {
             li.addEventListener('click', () => {
@@ -323,10 +377,12 @@ function renderPointCards(): void {
     const isPlayer = currentUser?.role === 'player'
     
     container.innerHTML = POINT_VALUES.map(points => `
-        <button class="point-card ${state.myVote === points ? 'selected' : ''}" 
-                data-points="${points}" 
+        <button class="point-card ${state.myVote === points ? 'selected' : ''}"
+                data-points="${points}"
+                aria-label="Vote ${points} points"
+                title="${points} points"
                 ${!isPlayer ? 'disabled' : ''}>
-            ${points}
+            ${getCardSvg(points)}
         </button>
     `).join('')
     
@@ -338,6 +394,110 @@ function renderPointCards(): void {
             renderPointCards()
         })
     })
+}
+
+function getCardSvg(points: number): string {
+    const visual = getCardVisual(points)
+    const cornerLabel = visual.label
+    const suit = visual.suitSymbol
+    const fill = visual.color === 'red' ? '#d63031' : '#2d3436'
+    const pipFill = visual.color === 'red' ? '#e17055' : '#2d3436'
+
+    const pips = visual.pipPositions
+        .map(({ x, y }) => `<text x="${x}" y="${y}" text-anchor="middle" dominant-baseline="middle" font-size="32" fill="${pipFill}">${suit}</text>`)
+        .join('')
+
+    const faceCenter = visual.isFace
+        ? `
+            <text x="100" y="150" text-anchor="middle" dominant-baseline="middle" font-size="108" font-weight="700" fill="${fill}">${visual.label}</text>
+            <text x="100" y="220" text-anchor="middle" dominant-baseline="middle" font-size="54" fill="${pipFill}">${visual.suitSymbol}</text>
+        `
+        : pips
+
+    return `
+        <svg class="card-svg" viewBox="0 0 200 280" xmlns="http://www.w3.org/2000/svg" role="img" aria-hidden="true">
+            <rect x="6" y="6" width="188" height="268" rx="16" fill="#ffffff" stroke="#e0e0e0" stroke-width="2" />
+            <rect x="14" y="14" width="172" height="252" rx="12" fill="#ffffff" stroke="#f1f2f6" stroke-width="2" />
+            <text x="22" y="36" font-size="26" font-weight="700" fill="${fill}">${cornerLabel}</text>
+            <text x="22" y="64" font-size="24" fill="${pipFill}">${suit}</text>
+            <g transform="rotate(180 100 140)">
+                <text x="22" y="36" font-size="26" font-weight="700" fill="${fill}">${cornerLabel}</text>
+                <text x="22" y="64" font-size="24" fill="${pipFill}">${suit}</text>
+            </g>
+            ${faceCenter}
+        </svg>
+    `
+}
+
+function getFaceCenterSvg(visual: CardVisual, fill: string, pipFill: string): string {
+    if (visual.label === 'K') {
+        return `
+            ${getOrnateKSvg(fill)}
+            <text x="100" y="214" text-anchor="middle" dominant-baseline="middle" font-size="54" fill="${pipFill}">${visual.suitSymbol}</text>
+        `
+    }
+
+    return `
+        <text x="100" y="150" text-anchor="middle" dominant-baseline="middle" font-size="108" font-weight="700" fill="${fill}">${visual.label}</text>
+        <text x="100" y="220" text-anchor="middle" dominant-baseline="middle" font-size="54" fill="${pipFill}">${visual.suitSymbol}</text>
+    `
+}
+
+function getOrnateKSvg(fill: string): string {
+    return `
+        <g transform="translate(28 44)">
+            <path d="M18 0 L56 0 L70 18 L70 176 L56 196 L18 196 L6 176 L6 18 Z" fill="${fill}" />
+            <path d="M70 84 L152 10 L172 28 L96 98 L70 98 Z" fill="${fill}" />
+            <path d="M70 98 L96 98 L172 168 L152 186 L70 112 Z" fill="${fill}" />
+            <path d="M18 0 L36 20 L6 20 Z" fill="${fill}" />
+            <path d="M18 196 L36 176 L6 176 Z" fill="${fill}" />
+            <path d="M152 10 L166 -2 L184 14 L172 28 Z" fill="${fill}" />
+            <path d="M152 186 L172 168 L184 182 L166 198 Z" fill="${fill}" />
+            <path d="M70 84 L96 64 L120 84 L94 104 Z" fill="#ffffff" fill-opacity="0.16" />
+        </g>
+    `
+}
+
+function getCardVisual(points: number): CardVisual {
+    const suitMap: Record<number, SuitName> = {
+        1: 'spades',
+        2: 'hearts',
+        3: 'clubs',
+        5: 'diamonds',
+        8: 'spades',
+        13: 'hearts'
+    }
+
+    const suitSymbols: Record<SuitName, string> = {
+        spades: '♠',
+        hearts: '♥',
+        clubs: '♣',
+        diamonds: '♦'
+    }
+
+    const color = suitMap[points] === 'hearts' || suitMap[points] === 'diamonds' ? 'red' : 'black'
+    const label = points === 1 ? 'A' : points === 13 ? 'K' : String(points)
+
+    const pipLayouts: Record<number, Array<{ x: number; y: number }>> = {
+        1: [{ x: 100, y: 140 }],
+        2: [{ x: 100, y: 70 }, { x: 100, y: 210 }],
+        3: [{ x: 100, y: 70 }, { x: 100, y: 140 }, { x: 100, y: 210 }],
+        5: [{ x: 60, y: 70 }, { x: 140, y: 70 }, { x: 100, y: 140 }, { x: 60, y: 210 }, { x: 140, y: 210 }],
+        8: [
+            { x: 60, y: 60 }, { x: 140, y: 60 },
+            { x: 60, y: 100 }, { x: 140, y: 100 },
+            { x: 60, y: 180 }, { x: 140, y: 180 },
+            { x: 60, y: 220 }, { x: 140, y: 220 }
+        ]
+    }
+
+    return {
+        label,
+        suitSymbol: suitSymbols[suitMap[points] ?? 'spades'],
+        color,
+        pipPositions: pipLayouts[points] ?? [{ x: 100, y: 140 }],
+        isFace: points === 13
+    }
 }
 
 function updateVoteStatus(): void {
