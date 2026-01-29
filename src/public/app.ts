@@ -400,8 +400,8 @@ function getCardSvg(points: number): string {
     const visual = getCardVisual(points)
     const cornerLabel = visual.label
     const suit = visual.suitSymbol
-    const fill = visual.color === 'red' ? '#d63031' : '#2d3436'
-    const pipFill = visual.color === 'red' ? '#e17055' : '#2d3436'
+    const fill = visual.color === 'red' ? '#b71c1c' : '#1f2528'
+    const pipFill = visual.color === 'red' ? '#c62828' : '#1f2528'
 
     const pips = visual.pipPositions
         .map(({ x, y }) => `<text x="${x}" y="${y}" text-anchor="middle" dominant-baseline="middle" font-size="32" fill="${pipFill}">${suit}</text>`)
