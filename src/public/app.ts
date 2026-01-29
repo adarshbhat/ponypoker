@@ -41,6 +41,7 @@ export type ClientMessage =
     | { type: 'vote'; points: number }
     | { type: 'revealVotes' }
     | { type: 'resetVotes' }
+    | { type: 'leave' }
 
 const POINT_VALUES = [1, 2, 3, 5, 8, 13]
 
@@ -671,6 +672,7 @@ export function setupEventHandlers(): void {
 
     // Leave Button
     getElement<HTMLButtonElement>('leave-btn')?.addEventListener('click', () => {
+        sendMessage({ type: 'leave' })
         localStorage.removeItem('ponypoker_teamCode')
         state.session = null
         state.userId = null
@@ -730,6 +732,10 @@ export function setupEventHandlers(): void {
             return
         }
         sendMessage({ type: 'resetVotes' })
+    })
+
+    window.addEventListener('beforeunload', () => {
+        sendMessage({ type: 'leave' })
     })
 }
 

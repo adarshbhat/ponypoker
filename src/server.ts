@@ -35,6 +35,7 @@ export type ClientMessage =
     | { type: 'vote'; points: number }
     | { type: 'revealVotes' }
     | { type: 'resetVotes' }
+    | { type: 'leave' }
 
 export type ServerMessage =
     | { type: 'sessionState'; session: TeamSession; userId: string }
@@ -130,6 +131,11 @@ export function handleMessage(ws: WebSocket, message: ClientMessage, wss: WebSoc
             
             // Notify others
             broadcast(teamCode, { type: 'userJoined', user }, wss, ws)
+            break
+        }
+
+        case 'leave': {
+            handleDisconnect(ws, wss)
             break
         }
         
