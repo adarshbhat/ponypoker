@@ -423,7 +423,10 @@ export function renderTickets(): void {
     listEl.innerHTML = ticketsToRender.map(ticket => `
         <li class="${ticket.id === state.session?.selectedTicketId ? 'selected' : ''}" 
             data-ticket-id="${ticket.id}">
-            <div class="ticket-title">${escapeHtml(ticket.title)}</div>
+            <div class="ticket-title">
+                ${ticket.revealed ? '<span class="ticket-voted-icon" title="Voted">✓</span>' : ''}
+                ${escapeHtml(ticket.title)}
+            </div>
             ${ticket.description ? `<div class="ticket-desc">${escapeHtml(ticket.description)}</div>` : ''}
         </li>
     `).join('')
