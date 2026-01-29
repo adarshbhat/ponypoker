@@ -45,6 +45,13 @@ export type ClientMessage =
 
 const POINT_VALUES = [1, 2, 3, 5, 8, 13]
 
+const TEAM_DISPLAY_NAMES: Record<string, string> = {
+    'git-gurus': 'Git Gurus',
+    'never-ponies': 'Never Ponies',
+    'nextgen': 'NextGen',
+    'rainbow-cloudies': 'Rainbow Cloudies'
+}
+
 type SuitName = 'spades' | 'hearts' | 'clubs' | 'diamonds'
 
 interface CardVisual {
@@ -79,6 +86,24 @@ export const state: AppState = {
 // DOM Elements
 function getElement<T extends HTMLElement>(id: string): T | null {
     return document.getElementById(id) as T | null
+}
+
+function getTeamDisplayName(teamCode: string): string {
+    return TEAM_DISPLAY_NAMES[teamCode] ?? teamCode
+}
+
+function updateTeamName(teamCode: string | null): void {
+    const teamNameEl = getElement<HTMLElement>('team-name')
+    if (!teamNameEl) return
+
+    if (!teamCode) {
+        teamNameEl.textContent = ''
+        teamNameEl.classList.add('hidden')
+        return
+    }
+
+    teamNameEl.textContent = getTeamDisplayName(teamCode)
+    teamNameEl.classList.remove('hidden')
 }
 
 // WebSocket Connection
@@ -147,6 +172,7 @@ export function handleServerMessage(message: ServerMessage): void {
             state.votedUsers = {}
             state.votedCount = 0
             state.myVote = null
+            updateTeamName(message.session.code)
             if (message.session.selectedTicketId) {
                 const selectedTicket = message.session.tickets.find(t => t.id === message.session?.selectedTicketId)
                 if (selectedTicket) {
@@ -311,7 +337,29 @@ export function renderMembers(): void {
     const session = state.session
     if (!listEl || !session) return
 
-    listEl.innerHTML = session.users.map(user => {
+    const users: User[] = [...session.users]
+
+    users.sort((a: User, b: User): number => {
+        const isMeA: boolean = a.id === state.userId
+        const isMeB: boolean = b.id === state.userId
+        if (isMeA !== isMeB) {
+            return isMeA ? -1 : 1
+        }
+
+        const roleRank = (user: User): number => (user.role === 'player' ? 0 : 1)
+        const roleDiff: number = roleRank(a) - roleRank(b)
+        if (roleDiff !== 0) {
+            return roleDiff
+        }
+
+        const nameA: string = a.name.toLocaleLowerCase()
+        const nameB: string = b.name.toLocaleLowerCase()
+        if (nameA < nameB) return -1
+        if (nameA > nameB) return 1
+        return 0
+    })
+
+    listEl.innerHTML = users.map(user => {
         const ticketSelected = Boolean(session.selectedTicketId)
         const ticket = ticketSelected ? session.tickets.find(t => t.id === session.selectedTicketId) : null
         const hasVoted = Boolean(state.votedUsers && state.votedUsers[user.id]) || (session.votingRevealed && ticket ? (ticket.votes[user.id] !== undefined && ticket.votes[user.id] !== null) : false)
@@ -638,6 +686,23 @@ function escapeHtml(text: string): string {
 
 // Event Handlers
 export function setupEventHandlers(): void {
+    const teamCodeSelect = getElement<HTMLSelectElement>('team-code')
+    if (teamCodeSelect) {
+        teamCodeSelect.innerHTML = ''
+        Object.entries(TEAM_DISPLAY_NAMES).forEach(([code, displayName]: [string, string]) => {
+            const option: HTMLOptionElement = document.createElement('option')
+            option.value = code
+            option.textContent = displayName
+            teamCodeSelect.appendChild(option)
+        })
+
+        // Preselect saved team if available
+        const savedTeamCode = localStorage.getItem('ponypoker_teamCode')
+        if (savedTeamCode && TEAM_DISPLAY_NAMES[savedTeamCode]) {
+            teamCodeSelect.value = savedTeamCode
+        }
+    }
+
     // Join Form
     const joinForm = getElement<HTMLFormElement>('join-form')
     joinForm?.addEventListener('submit', (e: Event) => {
@@ -677,6 +742,7 @@ export function setupEventHandlers(): void {
         state.session = null
         state.userId = null
         state.ws?.close()
+        updateTeamName(null)
         showScreen('join-screen')
     })
 

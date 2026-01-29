@@ -239,6 +239,7 @@ main {
     display: flex;
     align-items: center;
     gap: 0.5rem;
+    margin-bottom: 0.25rem;
 }
 
 .members-list li.player {

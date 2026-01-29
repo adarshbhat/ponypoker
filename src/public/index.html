@@ -24,9 +24,7 @@
                     </div>
                     <div class="form-group">
                         <label for="team-code">Team</label>
-                        <select id="team-code" required>
-                            <option value="never-ponies" selected>Never Ponies</option>
-                        </select>
+                        <select id="team-code" required></select>
                     </div>
                     <div class="form-group">
                         <label>Role</label>
@@ -52,7 +50,7 @@
                 <!-- Sidebar: Team Members -->
                 <aside class="sidebar">
                     <div class="card">
-                        <h3>Team Members</h3>
+                        <h3 id="team-name" class="team-name hidden"></h3>
                         <ul id="members-list" class="members-list"></ul>
                     </div>
                     <button id="leave-btn" class="btn btn-secondary">Leave Session</button>
