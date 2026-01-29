@@ -547,10 +547,13 @@ function showResults(ticket: Ticket, average: number): void {
     
     votesDisplay.innerHTML = Object.entries(ticket.votes).map(([oderId, vote]) => {
         const user = state.session?.users.find(u => u.id === oderId)
+        const voteMarkup = typeof vote === 'number'
+            ? `<div class="vote-card">${getCardSvg(vote)}</div>`
+            : '<div class="vote-placeholder">-</div>'
         return `
             <div class="vote-item">
                 <div class="voter-name">${escapeHtml(user?.name || 'Unknown')}</div>
-                <div class="vote-value">${vote ?? '-'}</div>
+                <div class="vote-value">${voteMarkup}</div>
             </div>
         `
     }).join('')
