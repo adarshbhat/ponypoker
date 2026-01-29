@@ -16,6 +16,7 @@ export interface Ticket {
     title: string
     description: string
     votes: Record<string, number | null>
+    revealed: boolean
 }
 
 export interface TeamSession {
@@ -40,7 +41,7 @@ export type ServerMessage =
     | { type: 'userJoined'; user: User }
     | { type: 'userLeft'; userId: string }
     | { type: 'ticketAdded'; ticket: Ticket }
-    | { type: 'ticketSelected'; ticketId: string }
+    | { type: 'ticketSelected'; ticket: Ticket; votedCount: number; totalPlayers: number }
     | { type: 'voteReceived'; ticketId: string; votedCount: number; totalPlayers: number; voterId?: string }
     | { type: 'votesRevealed'; ticket: Ticket; average: number }
     | { type: 'votesReset'; ticketId: string }
@@ -149,7 +150,8 @@ export function handleMessage(ws: WebSocket, message: ClientMessage, wss: WebSoc
                 id: uuidv4(),
                 title: message.title,
                 description: message.description,
-                votes: {}
+                votes: {},
+                revealed: false
             }
             session.tickets.push(ticket)
             
@@ -177,9 +179,11 @@ export function handleMessage(ws: WebSocket, message: ClientMessage, wss: WebSoc
             }
             
             session.selectedTicketId = message.ticketId
-            session.votingRevealed = false
-            
-            broadcast(clientInfo.sessionCode, { type: 'ticketSelected', ticketId: message.ticketId }, wss)
+            session.votingRevealed = ticket.revealed
+
+            const votedCount = getVoteCount(ticket, session)
+            const totalPlayers = getPlayerCount(session)
+            broadcast(clientInfo.sessionCode, { type: 'ticketSelected', ticket, votedCount, totalPlayers }, wss)
             break
         }
         
@@ -230,6 +234,7 @@ export function handleMessage(ws: WebSocket, message: ClientMessage, wss: WebSoc
             // Auto-reveal if all players voted
             if (votedCount === totalPlayers && totalPlayers > 0) {
                 session.votingRevealed = true
+                ticket.revealed = true
                 const average = calculateAverage(ticket)
                 broadcast(clientInfo.sessionCode, { type: 'votesRevealed', ticket, average }, wss)
             }
@@ -261,6 +266,7 @@ export function handleMessage(ws: WebSocket, message: ClientMessage, wss: WebSoc
             }
             
             session.votingRevealed = true
+            ticket.revealed = true
             const average = calculateAverage(ticket)
             broadcast(clientInfo.sessionCode, { type: 'votesRevealed', ticket, average }, wss)
             break
@@ -292,6 +298,7 @@ export function handleMessage(ws: WebSocket, message: ClientMessage, wss: WebSoc
             
             ticket.votes = {}
             session.votingRevealed = false
+            ticket.revealed = false
             broadcast(clientInfo.sessionCode, { type: 'votesReset', ticketId: ticket.id }, wss)
             break
         }

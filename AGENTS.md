@@ -28,3 +28,8 @@ A poker app used to add story points to tickets by a Scrum team
 1. npm ci
 2. npm run build
 3. npm start
+
+## How to push to Azure
+```
+az acr build --registry nppacr --image neverponiespoker:v1.6 .
+```

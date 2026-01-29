@@ -12,6 +12,7 @@ export interface Ticket {
     title: string
     description: string
     votes: Record<string, number | null>
+    revealed: boolean
 }
 
 export interface TeamSession {
@@ -27,7 +28,7 @@ export type ServerMessage =
     | { type: 'userJoined'; user: User }
     | { type: 'userLeft'; userId: string }
     | { type: 'ticketAdded'; ticket: Ticket }
-    | { type: 'ticketSelected'; ticketId: string }
+    | { type: 'ticketSelected'; ticket: Ticket; votedCount: number; totalPlayers: number }
     | { type: 'voteReceived'; ticketId: string; votedCount: number; totalPlayers: number; voterId?: string }
     | { type: 'votesRevealed'; ticket: Ticket; average: number }
     | { type: 'votesReset'; ticketId: string }
@@ -141,15 +142,40 @@ export function handleServerMessage(message: ServerMessage): void {
             state.session = message.session
             state.userId = message.userId
             try { localStorage.setItem('ponypoker_userId', message.userId) } catch {}
-            state.myVote = null
-            state.votedCount = 0
-            state.votedUsers = {}
             state.totalPlayers = message.session.users.filter(u => u.role === 'player').length
+            state.votedUsers = {}
+            state.votedCount = 0
+            state.myVote = null
+            if (message.session.selectedTicketId) {
+                const selectedTicket = message.session.tickets.find(t => t.id === message.session?.selectedTicketId)
+                if (selectedTicket) {
+                    state.session.votingRevealed = selectedTicket.revealed
+                    const playerIds = new Set(message.session.users.filter(u => u.role === 'player').map(u => u.id))
+                    const votedUsers: Record<string, boolean> = {}
+                    Object.entries(selectedTicket.votes).forEach(([userId, vote]) => {
+                        if (playerIds.has(userId) && vote !== null) {
+                            votedUsers[userId] = true
+                        }
+                    })
+                    state.votedUsers = votedUsers
+                    state.votedCount = Object.keys(votedUsers).length
+                    if (state.userId && selectedTicket.votes[state.userId] !== undefined) {
+                        const myVote = selectedTicket.votes[state.userId]
+                        state.myVote = typeof myVote === 'number' ? myVote : null
+                    }
+                }
+            }
             showScreen('session-screen')
             renderMembers()
             renderTickets()
             updateVotingSection()
             updateObserverControls()
+            if (state.session.selectedTicketId) {
+                const selectedTicket = state.session.tickets.find(t => t.id === state.session?.selectedTicketId)
+                if (selectedTicket?.revealed) {
+                    showResults(selectedTicket, calculateAverage(selectedTicket))
+                }
+            }
             break
             
         case 'userJoined':
@@ -190,15 +216,37 @@ export function handleServerMessage(message: ServerMessage): void {
             
         case 'ticketSelected':
             if (state.session) {
-                state.session.selectedTicketId = message.ticketId
-                state.session.votingRevealed = false
-                state.myVote = null
-                state.votedCount = 0
-                state.votedUsers = {}
+                state.session.selectedTicketId = message.ticket.id
+                state.session.votingRevealed = message.ticket.revealed
+                const existingIndex = state.session.tickets.findIndex(t => t.id === message.ticket.id)
+                if (existingIndex >= 0) {
+                    state.session.tickets[existingIndex] = message.ticket
+                } else {
+                    state.session.tickets.push(message.ticket)
+                }
+                const playerIds = new Set(state.session.users.filter(u => u.role === 'player').map(u => u.id))
+                const votedUsers: Record<string, boolean> = {}
+                Object.entries(message.ticket.votes).forEach(([userId, vote]) => {
+                    if (playerIds.has(userId) && vote !== null) {
+                        votedUsers[userId] = true
+                    }
+                })
+                state.votedUsers = votedUsers
+                state.votedCount = message.votedCount
+                state.totalPlayers = message.totalPlayers
+                if (state.userId && message.ticket.votes[state.userId] !== undefined) {
+                    const myVote = message.ticket.votes[state.userId]
+                    state.myVote = typeof myVote === 'number' ? myVote : null
+                } else {
+                    state.myVote = null
+                }
                 renderTickets()
                 updateVotingSection()
                 updateObserverControls()
                 renderMembers()
+                if (message.ticket.revealed) {
+                    showResults(message.ticket, calculateAverage(message.ticket))
+                }
             }
             break
             
@@ -219,6 +267,7 @@ export function handleServerMessage(message: ServerMessage): void {
                 const ticket = state.session.tickets.find(t => t.id === message.ticket.id)
                 if (ticket) {
                     ticket.votes = message.ticket.votes
+                    ticket.revealed = true
                 }
                 showResults(message.ticket, message.average)
                 // clear in-progress voted markers since actual votes are visible now
@@ -231,6 +280,7 @@ export function handleServerMessage(message: ServerMessage): void {
                 const ticket = state.session.tickets.find(t => t.id === message.ticketId)
                 if (ticket) {
                     ticket.votes = {}
+                    ticket.revealed = false
                 }
                 state.session.votingRevealed = false
                 state.myVote = null
@@ -456,6 +506,12 @@ function getOrnateKSvg(fill: string): string {
             <path d="M70 84 L96 64 L120 84 L94 104 Z" fill="#ffffff" fill-opacity="0.16" />
         </g>
     `
+}
+
+function calculateAverage(ticket: Ticket): number {
+    const values = Object.values(ticket.votes).filter((v): v is number => v !== null)
+    if (values.length === 0) return 0
+    return Math.round((values.reduce((a, b) => a + b, 0) / values.length) * 10) / 10
 }
 
 function getCardVisual(points: number): CardVisual {
