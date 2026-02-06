@@ -23,6 +23,14 @@ export interface TeamSession {
     votingRevealed: boolean
 }
 
+export interface VoteAnalysis {
+    consensus: boolean
+    mode: number | null
+    median: number
+    distribution: Record<number, string[]>
+    recommendedPoint: number
+}
+
 export type ServerMessage =
     | { type: 'sessionState'; session: TeamSession; userId: string }
     | { type: 'userJoined'; user: User }
@@ -30,7 +38,7 @@ export type ServerMessage =
     | { type: 'ticketAdded'; ticket: Ticket }
     | { type: 'ticketSelected'; ticket: Ticket; votedCount: number; totalPlayers: number }
     | { type: 'voteReceived'; ticketId: string; votedCount: number; totalPlayers: number; voterId?: string }
-    | { type: 'votesRevealed'; ticket: Ticket; average: number }
+    | { type: 'votesRevealed'; ticket: Ticket; average: number; analysis: VoteAnalysis }
     | { type: 'votesReset'; ticketId: string }
     | { type: 'error'; message: string }
 
@@ -272,7 +280,8 @@ export function handleServerMessage(message: ServerMessage): void {
                 updateObserverControls()
                 renderMembers()
                 if (message.ticket.revealed) {
-                    showResults(message.ticket, calculateAverage(message.ticket))
+                    const analysis = analyzeVotes(message.ticket)
+                    showResults(message.ticket, calculateAverage(message.ticket), analysis)
                 }
             }
             break
@@ -296,7 +305,7 @@ export function handleServerMessage(message: ServerMessage): void {
                     ticket.votes = message.ticket.votes
                     ticket.revealed = true
                 }
-                showResults(message.ticket, message.average)
+                showResults(message.ticket, message.average, message.analysis)
                 // clear in-progress voted markers since actual votes are visible now
                 state.votedUsers = {}
             }
@@ -566,6 +575,99 @@ function calculateAverage(ticket: Ticket): number {
     return Math.round((values.reduce((a, b) => a + b, 0) / values.length) * 10) / 10
 }
 
+function roundToNearestPoint(value: number): number {
+    let closest = POINT_VALUES[0]
+    let minDiff = Math.abs(value - closest)
+    
+    for (const point of POINT_VALUES) {
+        const diff = Math.abs(value - point)
+        if (diff < minDiff) {
+            minDiff = diff
+            closest = point
+        }
+    }
+    
+    return closest
+}
+
+function analyzeVotes(ticket: Ticket): VoteAnalysis {
+    if (!state.session) {
+        return {
+            consensus: false,
+            mode: null,
+            median: 0,
+            distribution: {},
+            recommendedPoint: 0
+        }
+    }
+    
+    const playerIds = state.session.users.filter(u => u.role === 'player').map(u => u.id)
+    const votes = Object.entries(ticket.votes)
+        .filter(([id, v]) => playerIds.includes(id) && v !== null)
+        .map(([id, v]) => ({ userId: id, value: v as number }))
+    
+    if (votes.length === 0) {
+        return {
+            consensus: false,
+            mode: null,
+            median: 0,
+            distribution: {},
+            recommendedPoint: 0
+        }
+    }
+    
+    // Build distribution: vote value -> array of user IDs
+    const distribution: Record<number, string[]> = {}
+    for (const vote of votes) {
+        if (!distribution[vote.value]) {
+            distribution[vote.value] = []
+        }
+        distribution[vote.value].push(vote.userId)
+    }
+    
+    // Check consensus (all votes are the same)
+    const uniqueVotes = Object.keys(distribution).length
+    const consensus = uniqueVotes === 1
+    
+    // Find mode (most common vote)
+    let mode: number | null = null
+    let maxCount = 0
+    for (const [value, userIds] of Object.entries(distribution)) {
+        if (userIds.length > maxCount) {
+            maxCount = userIds.length
+            mode = Number(value)
+        }
+    }
+    
+    // Calculate median
+    const sortedValues = votes.map(v => v.value).sort((a, b) => a - b)
+    const mid = Math.floor(sortedValues.length / 2)
+    const median = sortedValues.length % 2 === 0
+        ? (sortedValues[mid - 1] + sortedValues[mid]) / 2
+        : sortedValues[mid]
+    
+    // Calculate recommended story point using smart algorithm
+    let recommendedPoint: number
+    if (consensus) {
+        // 100% consensus - use that value
+        recommendedPoint = mode!
+    } else if (mode !== null && maxCount > votes.length / 2) {
+        // Clear majority (>50%) - use mode
+        recommendedPoint = mode
+    } else {
+        // No clear winner - use median rounded to nearest valid point
+        recommendedPoint = roundToNearestPoint(median)
+    }
+    
+    return {
+        consensus,
+        mode,
+        median,
+        distribution,
+        recommendedPoint
+    }
+}
+
 function getCardVisual(points: number): CardVisual {
     const suitMap: Record<number, SuitName> = {
         1: 'spades',
@@ -644,7 +746,7 @@ function updateObserverControls(): void {
     }
 }
 
-function showResults(ticket: Ticket, average: number): void {
+function showResults(ticket: Ticket, average: number, analysis: VoteAnalysis): void {
     const resultsSection = getElement<HTMLDivElement>('results-section')
     const votesDisplay = getElement<HTMLDivElement>('votes-display')
     const averageDisplay = getElement<HTMLDivElement>('average-display')
@@ -653,19 +755,58 @@ function showResults(ticket: Ticket, average: number): void {
     
     resultsSection.classList.remove('hidden')
     
-    votesDisplay.innerHTML = Object.entries(ticket.votes).map(([oderId, vote]) => {
-        const user = state.session?.users.find(u => u.id === oderId)
-        const voteMarkup = typeof vote === 'number'
-            ? `<div class="vote-card">${getCardSvg(vote)}</div>`
-            : '<div class="vote-placeholder">-</div>'
-        return `
-            <div class="vote-item">
-                <div class="voter-name">${escapeHtml(user?.name || 'Unknown')}</div>
-                <div class="vote-value">${voteMarkup}</div>
+    // Build the results display with consensus, recommended point, and grouped votes
+    let resultsHtml = ''
+    
+    // Show consensus banner if all votes match
+    if (analysis.consensus && analysis.mode !== null) {
+        resultsHtml += `
+            <div class="consensus-banner">
+                🎯 Consensus: ${analysis.mode} points
             </div>
         `
-    }).join('')
+    }
     
+    // Show recommended story point prominently
+    resultsHtml += `
+        <div class="recommended-point">
+            <div class="recommended-label">Recommended Story Point</div>
+            <div class="recommended-card">${getCardSvg(analysis.recommendedPoint)}</div>
+            <div class="recommended-value">${analysis.recommendedPoint} points</div>
+        </div>
+    `
+    
+    // Group votes by card value (sorted descending)
+    const voteValues = Object.keys(analysis.distribution)
+        .map(v => Number(v))
+        .sort((a, b) => b - a)
+    
+    if (voteValues.length > 0) {
+        resultsHtml += '<div class="vote-groups">'
+        
+        for (const value of voteValues) {
+            const userIds = analysis.distribution[value]
+            const userNames = userIds
+                .map(id => state.session?.users.find(u => u.id === id)?.name || 'Unknown')
+                .sort()
+            const count = userIds.length
+            const plural = count === 1 ? 'vote' : 'votes'
+            
+            resultsHtml += `
+                <div class="vote-group">
+                    <div class="vote-group-header">
+                        <div class="vote-group-card">${getCardSvg(value)}</div>
+                        <div class="vote-group-count">${count} ${plural}</div>
+                    </div>
+                    <div class="vote-group-players">${userNames.map(n => escapeHtml(n)).join(', ')}</div>
+                </div>
+            `
+        }
+        
+        resultsHtml += '</div>'
+    }
+    
+    votesDisplay.innerHTML = resultsHtml
     averageDisplay.textContent = `Average: ${average}`
 }
 

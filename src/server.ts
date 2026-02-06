@@ -27,6 +27,14 @@ export interface TeamSession {
     votingRevealed: boolean
 }
 
+export interface VoteAnalysis {
+    consensus: boolean
+    mode: number | null
+    median: number
+    distribution: Record<number, string[]>
+    recommendedPoint: number
+}
+
 // WebSocket message types
 export type ClientMessage =
     | { type: 'join'; teamCode: string; name: string; role: 'player' | 'observer'; userId?: string }
@@ -44,7 +52,7 @@ export type ServerMessage =
     | { type: 'ticketAdded'; ticket: Ticket }
     | { type: 'ticketSelected'; ticket: Ticket; votedCount: number; totalPlayers: number }
     | { type: 'voteReceived'; ticketId: string; votedCount: number; totalPlayers: number; voterId?: string }
-    | { type: 'votesRevealed'; ticket: Ticket; average: number }
+    | { type: 'votesRevealed'; ticket: Ticket; average: number; analysis: VoteAnalysis }
     | { type: 'votesReset'; ticketId: string }
     | { type: 'error'; message: string }
 
@@ -86,6 +94,89 @@ function calculateAverage(ticket: Ticket): number {
     const values = Object.values(ticket.votes).filter((v): v is number => v !== null)
     if (values.length === 0) return 0
     return Math.round((values.reduce((a, b) => a + b, 0) / values.length) * 10) / 10
+}
+
+function roundToNearestPoint(value: number): number {
+    let closest = POINT_VALUES[0]
+    let minDiff = Math.abs(value - closest)
+    
+    for (const point of POINT_VALUES) {
+        const diff = Math.abs(value - point)
+        if (diff < minDiff) {
+            minDiff = diff
+            closest = point
+        }
+    }
+    
+    return closest
+}
+
+function analyzeVotes(ticket: Ticket, session: TeamSession): VoteAnalysis {
+    const playerIds = session.users.filter(u => u.role === 'player').map(u => u.id)
+    const votes = Object.entries(ticket.votes)
+        .filter(([id, v]) => playerIds.includes(id) && v !== null)
+        .map(([id, v]) => ({ userId: id, value: v as number }))
+    
+    if (votes.length === 0) {
+        return {
+            consensus: false,
+            mode: null,
+            median: 0,
+            distribution: {},
+            recommendedPoint: 0
+        }
+    }
+    
+    // Build distribution: vote value -> array of user IDs
+    const distribution: Record<number, string[]> = {}
+    for (const vote of votes) {
+        if (!distribution[vote.value]) {
+            distribution[vote.value] = []
+        }
+        distribution[vote.value].push(vote.userId)
+    }
+    
+    // Check consensus (all votes are the same)
+    const uniqueVotes = Object.keys(distribution).length
+    const consensus = uniqueVotes === 1
+    
+    // Find mode (most common vote)
+    let mode: number | null = null
+    let maxCount = 0
+    for (const [value, userIds] of Object.entries(distribution)) {
+        if (userIds.length > maxCount) {
+            maxCount = userIds.length
+            mode = Number(value)
+        }
+    }
+    
+    // Calculate median
+    const sortedValues = votes.map(v => v.value).sort((a, b) => a - b)
+    const mid = Math.floor(sortedValues.length / 2)
+    const median = sortedValues.length % 2 === 0
+        ? (sortedValues[mid - 1] + sortedValues[mid]) / 2
+        : sortedValues[mid]
+    
+    // Calculate recommended story point using smart algorithm
+    let recommendedPoint: number
+    if (consensus) {
+        // 100% consensus - use that value
+        recommendedPoint = mode!
+    } else if (mode !== null && maxCount > votes.length / 2) {
+        // Clear majority (>50%) - use mode
+        recommendedPoint = mode
+    } else {
+        // No clear winner - use median rounded to nearest valid point
+        recommendedPoint = roundToNearestPoint(median)
+    }
+    
+    return {
+        consensus,
+        mode,
+        median,
+        distribution,
+        recommendedPoint
+    }
 }
 
 export function handleMessage(ws: WebSocket, message: ClientMessage, wss: WebSocketServer): void {
@@ -242,7 +333,8 @@ export function handleMessage(ws: WebSocket, message: ClientMessage, wss: WebSoc
                 session.votingRevealed = true
                 ticket.revealed = true
                 const average = calculateAverage(ticket)
-                broadcast(clientInfo.sessionCode, { type: 'votesRevealed', ticket, average }, wss)
+                const analysis = analyzeVotes(ticket, session)
+                broadcast(clientInfo.sessionCode, { type: 'votesRevealed', ticket, average, analysis }, wss)
             }
             break
         }
@@ -274,7 +366,8 @@ export function handleMessage(ws: WebSocket, message: ClientMessage, wss: WebSoc
             session.votingRevealed = true
             ticket.revealed = true
             const average = calculateAverage(ticket)
-            broadcast(clientInfo.sessionCode, { type: 'votesRevealed', ticket, average }, wss)
+            const analysis = analyzeVotes(ticket, session)
+            broadcast(clientInfo.sessionCode, { type: 'votesRevealed', ticket, average, analysis }, wss)
             break
         }
         
