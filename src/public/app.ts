@@ -121,6 +121,7 @@ export function connectWebSocket(): WebSocket {
     const ws = new WebSocket(wsUrl)
     
     ws.onopen = () => {
+        console.log('[WebSocket] Connected to server')
         updateConnectionStatus('connected')
         
         // Rejoin if we have saved session info
@@ -130,11 +131,15 @@ export function connectWebSocket(): WebSocket {
         const savedUserId = localStorage.getItem('ponypoker_userId') || undefined
         
         if (savedName && savedTeamCode && savedRole) {
+            console.log(`[Client] Reconnecting with saved session - teamCode: ${savedTeamCode}, userId: ${savedUserId || 'none'}`)
             sendMessage({ type: 'join', teamCode: savedTeamCode, name: savedName, role: savedRole, userId: savedUserId })
+        } else {
+            console.log('[Client] No saved session data found')
         }
     }
     
     ws.onclose = () => {
+        console.log('[WebSocket] Connection closed, reconnecting in 3 seconds...')
         updateConnectionStatus('disconnected')
         // Attempt reconnection after 3 seconds
         setTimeout(() => {
@@ -173,6 +178,7 @@ function updateConnectionStatus(status: 'connected' | 'disconnected' | 'connecti
 export function handleServerMessage(message: ServerMessage): void {
     switch (message.type) {
         case 'sessionState':
+            console.log(`[Client] Received sessionState - sessionCode: ${message.session.code}, tickets: ${message.session.tickets.length}, users: ${message.session.users.length}, userId: ${message.userId}`)
             state.session = message.session
             state.userId = message.userId
             try { localStorage.setItem('ponypoker_userId', message.userId) } catch {}
@@ -245,12 +251,14 @@ export function handleServerMessage(message: ServerMessage): void {
         case 'ticketAdded':
             if (state.session) {
                 state.session.tickets.push(message.ticket)
+                console.log(`[Client] Ticket added - id: ${message.ticket.id}, title: "${message.ticket.title}", total tickets: ${state.session.tickets.length}`)
                 renderTickets()
             }
             break
             
         case 'ticketSelected':
             if (state.session) {
+                console.log(`[Client] Ticket selected - id: ${message.ticket.id}, title: "${message.ticket.title}", current tickets: ${state.session.tickets.length}`)
                 state.session.selectedTicketId = message.ticket.id
                 state.session.votingRevealed = message.ticket.revealed
                 const existingIndex = state.session.tickets.findIndex(t => t.id === message.ticket.id)
@@ -313,6 +321,7 @@ export function handleServerMessage(message: ServerMessage): void {
             
         case 'votesReset':
             if (state.session) {
+                console.log(`[Client] Votes reset - ticketId: ${message.ticketId}, current tickets: ${state.session.tickets.length}`)
                 const ticket = state.session.tickets.find(t => t.id === message.ticketId)
                 if (ticket) {
                     ticket.votes = {}
@@ -328,6 +337,7 @@ export function handleServerMessage(message: ServerMessage): void {
             break
             
         case 'error':
+            console.log(`[Client] Error received from server: ${message.message}`)
             showError(message.message)
             break
     }

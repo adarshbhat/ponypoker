@@ -186,6 +186,7 @@ export function handleMessage(ws: WebSocket, message: ClientMessage, wss: WebSoc
             
             // Create session if it doesn't exist
             if (!sessions[teamCode]) {
+                console.log(`[Session ${teamCode}] Creating new session`)
                 sessions[teamCode] = {
                     code: teamCode,
                     users: [],
@@ -196,6 +197,7 @@ export function handleMessage(ws: WebSocket, message: ClientMessage, wss: WebSoc
             }
             
             const session = sessions[teamCode]
+            console.log(`[Session ${teamCode}] User joining - name: ${name}, role: ${role}, userId: ${userId || 'new'}, current tickets: ${session.tickets.length}, current users: ${session.users.length}`)
             
             // First, try to find existing user by userId for reconnection
             let user = userId ? session.users.find(u => u.id === userId) : undefined
@@ -233,11 +235,17 @@ export function handleMessage(ws: WebSocket, message: ClientMessage, wss: WebSoc
         case 'addTicket': {
             const clientInfo = clientSessions.get(ws)
             if (!clientInfo) {
+                console.log('[ERROR] addTicket - client not in session')
                 ws.send(JSON.stringify({ type: 'error', message: 'Not in a session' } as ServerMessage))
                 return
             }
             
             const session = sessions[clientInfo.sessionCode]
+            if (!session) {
+                console.log(`[ERROR] addTicket - session ${clientInfo.sessionCode} not found`)
+                ws.send(JSON.stringify({ type: 'error', message: 'Session not found' } as ServerMessage))
+                return
+            }
             const user = session.users.find(u => u.id === clientInfo.userId)
             if (!user || user.role !== 'observer') {
                 ws.send(JSON.stringify({ type: 'error', message: 'Only observers can add tickets' } as ServerMessage))
@@ -251,6 +259,7 @@ export function handleMessage(ws: WebSocket, message: ClientMessage, wss: WebSoc
                 revealed: false
             }
             session.tickets.push(ticket)
+            console.log(`[Session ${clientInfo.sessionCode}] Ticket added - id: ${ticket.id}, title: "${ticket.title}", total tickets: ${session.tickets.length}`)
             
             broadcast(clientInfo.sessionCode, { type: 'ticketAdded', ticket }, wss)
             break
@@ -411,12 +420,14 @@ export function handleDisconnect(ws: WebSocket, wss: WebSocketServer): void {
         if (session) {
             const userIndex = session.users.findIndex(u => u.id === clientInfo.userId)
             if (userIndex !== -1) {
+                console.log(`[Session ${clientInfo.sessionCode}] User left - userId: ${clientInfo.userId}, remaining users: ${session.users.length - 1}, tickets: ${session.tickets.length}`)
                 session.users.splice(userIndex, 1)
                 broadcast(clientInfo.sessionCode, { type: 'userLeft', userId: clientInfo.userId }, wss)
             }
             
             // Clean up empty sessions
             if (session.users.length === 0) {
+                console.log(`[Session ${clientInfo.sessionCode}] Session deleted - no users remaining`)
                 delete sessions[clientInfo.sessionCode]
             }
         }
@@ -426,16 +437,21 @@ export function handleDisconnect(ws: WebSocket, wss: WebSocketServer): void {
 
 export function setupWebSocket(wss: WebSocketServer): void {
     wss.on('connection', (ws: WebSocket) => {
+        console.log('[WebSocket] New connection established')
+        
         ws.on('message', (data: Buffer) => {
             try {
                 const message = JSON.parse(data.toString()) as ClientMessage
                 handleMessage(ws, message, wss)
-            } catch {
+            } catch (error) {
+                console.log('[WebSocket] Error parsing message:', error)
                 ws.send(JSON.stringify({ type: 'error', message: 'Invalid message format' } as ServerMessage))
             }
         })
         
         ws.on('close', () => {
+            const clientInfo = clientSessions.get(ws)
+            console.log(`[WebSocket] Connection closed - sessionCode: ${clientInfo?.sessionCode || 'unknown'}, userId: ${clientInfo?.userId || 'unknown'}`)
             handleDisconnect(ws, wss)
         })
     })
@@ -450,5 +466,5 @@ setupWebSocket(wss)
 
 const port = 3000
 server.listen(port, '0.0.0.0', () => {
-    console.log(`Pony Poker server listening on port ${port}`)
+    console.log(`[SERVER] Pony Poker server started on port ${port} at ${new Date().toISOString()}`)
 })

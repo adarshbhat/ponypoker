@@ -1,4 +1,4 @@
-# Never Pony Poker
+# Pony Poker
 A poker app used to add story points to tickets by a Scrum team
 
 ## Technology platform
