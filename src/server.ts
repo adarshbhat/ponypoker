@@ -59,8 +59,10 @@ export type ServerMessage =
 // In-memory store
 export const sessions: Record<string, TeamSession> = {}
 export const clientSessions: Map<WebSocket, { sessionCode: string; userId: string }> = new Map()
+export const sessionCleanupTimeouts: Map<string, NodeJS.Timeout> = new Map()
 
 export const POINT_VALUES = [1, 2, 3, 5, 8, 13]
+const SESSION_CLEANUP_DELAY_MS = 60 * 60 * 1000 // 60 minutes
 
 export function createApp(): Application {
     const app: Application = express()
@@ -183,6 +185,14 @@ export function handleMessage(ws: WebSocket, message: ClientMessage, wss: WebSoc
     switch (message.type) {
         case 'join': {
             const { teamCode, name, role, userId } = message
+            
+            // Cancel any pending cleanup for this session
+            const existingTimeout = sessionCleanupTimeouts.get(teamCode)
+            if (existingTimeout) {
+                console.log(`[Session ${teamCode}] Canceling scheduled cleanup - user rejoining`)
+                clearTimeout(existingTimeout)
+                sessionCleanupTimeouts.delete(teamCode)
+            }
             
             // Create session if it doesn't exist
             if (!sessions[teamCode]) {
@@ -425,10 +435,19 @@ export function handleDisconnect(ws: WebSocket, wss: WebSocketServer): void {
                 broadcast(clientInfo.sessionCode, { type: 'userLeft', userId: clientInfo.userId }, wss)
             }
             
-            // Clean up empty sessions
+            // Schedule delayed cleanup when last user leaves
             if (session.users.length === 0) {
-                console.log(`[Session ${clientInfo.sessionCode}] Session deleted - no users remaining`)
-                delete sessions[clientInfo.sessionCode]
+                console.log(`[Session ${clientInfo.sessionCode}] No users remaining - scheduling cleanup in 60 minutes`)
+                const timeout = setTimeout(() => {
+                    // Double-check the session still exists and is still empty
+                    const currentSession = sessions[clientInfo.sessionCode]
+                    if (currentSession && currentSession.users.length === 0) {
+                        console.log(`[Session ${clientInfo.sessionCode}] Session cleanup executed - 60 minutes elapsed with no users`)
+                        delete sessions[clientInfo.sessionCode]
+                        sessionCleanupTimeouts.delete(clientInfo.sessionCode)
+                    }
+                }, SESSION_CLEANUP_DELAY_MS)
+                sessionCleanupTimeouts.set(clientInfo.sessionCode, timeout)
             }
         }
         clientSessions.delete(ws)
