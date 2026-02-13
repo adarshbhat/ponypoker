@@ -43,6 +43,7 @@ export type ClientMessage =
     | { type: 'vote'; points: number }
     | { type: 'revealVotes' }
     | { type: 'resetVotes' }
+    | { type: 'throwPaperball'; targetUserId: string }
     | { type: 'leave' }
 
 export type ServerMessage =
@@ -54,6 +55,7 @@ export type ServerMessage =
     | { type: 'voteReceived'; ticketId: string; votedCount: number; totalPlayers: number; voterId?: string }
     | { type: 'votesRevealed'; ticket: Ticket; average: number; analysis: VoteAnalysis }
     | { type: 'votesReset'; ticketId: string }
+    | { type: 'paperballThrown'; fromUserId: string; targetUserId: string; id: string }
     | { type: 'error'; message: string }
 
 // In-memory store
@@ -418,6 +420,31 @@ export function handleMessage(ws: WebSocket, message: ClientMessage, wss: WebSoc
             session.votingRevealed = false
             ticket.revealed = false
             broadcast(clientInfo.sessionCode, { type: 'votesReset', ticketId: ticket.id }, wss)
+            break
+        }
+        
+        case 'throwPaperball': {
+            const clientInfo = clientSessions.get(ws)
+            if (!clientInfo) {
+                ws.send(JSON.stringify({ type: 'error', message: 'Not in a session' } as ServerMessage))
+                return
+            }
+            
+            const session = sessions[clientInfo.sessionCode]
+            const targetUser = session.users.find(u => u.id === message.targetUserId)
+            if (!targetUser) {
+                ws.send(JSON.stringify({ type: 'error', message: 'Target user not found' } as ServerMessage))
+                return
+            }
+            
+            // Broadcast paperball to all clients in the session
+            const paperballId = uuidv4()
+            broadcast(clientInfo.sessionCode, {
+                type: 'paperballThrown',
+                fromUserId: clientInfo.userId,
+                targetUserId: message.targetUserId,
+                id: paperballId
+            }, wss)
             break
         }
     }

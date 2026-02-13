@@ -40,6 +40,7 @@ export type ServerMessage =
     | { type: 'voteReceived'; ticketId: string; votedCount: number; totalPlayers: number; voterId?: string }
     | { type: 'votesRevealed'; ticket: Ticket; average: number; analysis: VoteAnalysis }
     | { type: 'votesReset'; ticketId: string }
+    | { type: 'paperballThrown'; fromUserId: string; targetUserId: string; id: string }
     | { type: 'error'; message: string }
 
 export type ClientMessage =
@@ -49,6 +50,7 @@ export type ClientMessage =
     | { type: 'vote'; points: number }
     | { type: 'revealVotes' }
     | { type: 'resetVotes' }
+    | { type: 'throwPaperball'; targetUserId: string }
     | { type: 'leave' }
 
 const POINT_VALUES = [1, 2, 3, 5, 8, 13]
@@ -79,6 +81,7 @@ export interface AppState {
     votedCount: number
     totalPlayers: number
     votedUsers: Record<string, boolean>
+    shiftKeyPressed: boolean
 }
 
 export const state: AppState = {
@@ -87,8 +90,9 @@ export const state: AppState = {
     session: null,
     myVote: null,
     votedCount: 0,
-    totalPlayers: 0
-    ,votedUsers: {}
+    totalPlayers: 0,
+    votedUsers: {},
+    shiftKeyPressed: false
 }
 
 // DOM Elements
@@ -336,6 +340,10 @@ export function handleServerMessage(message: ServerMessage): void {
             }
             break
             
+        case 'paperballThrown':
+            animatePaperball(message.fromUserId, message.targetUserId, message.id)
+            break
+            
         case 'error':
             console.log(`[Client] Error received from server: ${message.message}`)
             showError(message.message)
@@ -396,15 +404,29 @@ export function renderMembers(): void {
             voteIndicator = '⏳'
         }
         const isMe = user.id === state.userId
+        const canBeTargeted = !isMe && voteIndicator === '⏳'
         
         return `
-            <li class="${user.role}">
+            <li class="${user.role}${canBeTargeted ? ' targetable' : ''}" data-user-id="${user.id}">
                 <span>${user.name}${isMe ? ' (you)' : ''}</span>
                 <span class="role-badge">${user.role}</span>
                 <span class="vote-indicator">${voteIndicator}</span>
             </li>
         `
     }).join('')
+    
+    // Add click handlers for targeting users with paperballs
+    listEl.querySelectorAll('li[data-user-id]').forEach(li => {
+        const userId = li.getAttribute('data-user-id')
+        if (!userId) return
+        
+        li.addEventListener('click', (e: Event) => {
+            if (state.shiftKeyPressed && li.classList.contains('targetable')) {
+                e.preventDefault()
+                sendMessage({ type: 'throwPaperball', targetUserId: userId })
+            }
+        })
+    })
 }
 
 export function renderTickets(): void {
@@ -820,6 +842,110 @@ function showResults(ticket: Ticket, average: number, analysis: VoteAnalysis): v
     averageDisplay.textContent = `Average: ${average}`
 }
 
+function animatePaperball(fromUserId: string, targetUserId: string, id: string): void {
+    // Find the target user's element
+    const targetElement = document.querySelector<HTMLLIElement>(`li[data-user-id="${targetUserId}"]`)
+    if (!targetElement) return
+    
+    // Get target position
+    const targetRect = targetElement.getBoundingClientRect()
+    const targetX = targetRect.left + targetRect.width / 2
+    const targetY = targetRect.top + targetRect.height / 2
+    
+    // Create paperball element with random throwable emoji
+    const throwables = ['🥚', '🪨', '🍅', '🧻', '🥔', '🧦', '🍌', '🥧', '🧽', '🎾']
+    const randomEmoji = throwables[Math.floor(Math.random() * throwables.length)]
+    
+    const paperball = document.createElement('div')
+    paperball.className = 'paperball'
+    paperball.textContent = randomEmoji
+    paperball.setAttribute('data-paperball-id', id)
+    
+    // Randomly choose starting direction (top, left, right, or top-left, top-right corners)
+    const directions = ['top', 'top-left', 'top-right', 'left', 'right']
+    const direction = directions[Math.floor(Math.random() * directions.length)]
+    
+    let startX = 0
+    let startY = 0
+    
+    switch (direction) {
+        case 'top':
+            startX = Math.random() * window.innerWidth
+            startY = Math.random() * 100 + 20
+            break
+        case 'top-left':
+            startX = Math.random() * 150 + 20
+            startY = Math.random() * 100 + 20
+            break
+        case 'top-right':
+            startX = window.innerWidth - (Math.random() * 150 + 20)
+            startY = Math.random() * 100 + 20
+            break
+        case 'left':
+            startX = Math.random() * 150 + 20
+            startY = Math.random() * window.innerHeight * 0.5
+            break
+        case 'right':
+            startX = window.innerWidth - (Math.random() * 150 + 20)
+            startY = Math.random() * window.innerHeight * 0.5
+            break
+    }
+    
+    // Set initial position
+    paperball.style.left = `${startX}px`
+    paperball.style.top = `${startY}px`
+    
+    document.body.appendChild(paperball)
+    
+    // Calculate animation path with a parabolic arc
+    const deltaX = targetX - startX
+    const deltaY = targetY - startY
+    const distance = Math.sqrt(deltaX * deltaX + deltaY * deltaY)
+    const duration = Math.min(1000, Math.max(400, distance * 0.8)) // 400ms to 1000ms
+    
+    const startTime = performance.now()
+    
+    function animate(currentTime: number): void {
+        const elapsed = currentTime - startTime
+        const progress = Math.min(elapsed / duration, 1)
+        
+        // Easing function for smooth motion
+        const easeOut = 1 - Math.pow(1 - progress, 3)
+        
+        // Parabolic arc: add a vertical curve
+        const arcHeight = Math.min(200, distance * 0.3)
+        const arcProgress = Math.sin(progress * Math.PI)
+        
+        const currentX = startX + deltaX * easeOut
+        const currentY = startY + deltaY * easeOut - arcHeight * arcProgress
+        
+        paperball.style.left = `${currentX}px`
+        paperball.style.top = `${currentY}px`
+        
+        // Rotate during flight
+        paperball.style.transform = `rotate(${progress * 720}deg) scale(${1 + arcProgress * 0.3})`
+        
+        if (progress < 1) {
+            requestAnimationFrame(animate)
+        } else {
+            // Animation complete - add impact effect
+            paperball.classList.add('impact')
+            
+            // Add hit animation to target user
+            targetElement.classList.add('hit')
+            setTimeout(() => {
+                targetElement.classList.remove('hit')
+            }, 600)
+            
+            setTimeout(() => {
+                paperball.remove()
+            }, 300)
+        }
+    }
+    
+    requestAnimationFrame(animate)
+}
+
 function showError(message: string): void {
     const toast = getElement<HTMLDivElement>('error-toast')
     if (!toast) return
@@ -952,6 +1078,21 @@ export function setupEventHandlers(): void {
             return
         }
         sendMessage({ type: 'resetVotes' })
+    })
+
+    // Track shift key for targeting
+    window.addEventListener('keydown', (e: KeyboardEvent) => {
+        if (e.key === 'Shift' && !state.shiftKeyPressed) {
+            state.shiftKeyPressed = true
+            document.body.classList.add('shift-targeting')
+        }
+    })
+    
+    window.addEventListener('keyup', (e: KeyboardEvent) => {
+        if (e.key === 'Shift') {
+            state.shiftKeyPressed = false
+            document.body.classList.remove('shift-targeting')
+        }
     })
 
     window.addEventListener('beforeunload', () => {
