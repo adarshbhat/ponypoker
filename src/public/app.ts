@@ -82,6 +82,9 @@ export interface AppState {
     totalPlayers: number
     votedUsers: Record<string, boolean>
     shiftKeyPressed: boolean
+    longPressTimer: number | null
+    longPressActive: boolean
+    longPressTargetElement: HTMLElement | null
 }
 
 export const state: AppState = {
@@ -92,7 +95,10 @@ export const state: AppState = {
     votedCount: 0,
     totalPlayers: 0,
     votedUsers: {},
-    shiftKeyPressed: false
+    shiftKeyPressed: false,
+    longPressTimer: null,
+    longPressActive: false,
+    longPressTargetElement: null
 }
 
 // DOM Elements
@@ -425,6 +431,51 @@ export function renderMembers(): void {
                 e.preventDefault()
                 sendMessage({ type: 'throwPaperball', targetUserId: userId })
             }
+        })
+        
+        // Touch handlers for long press
+        li.addEventListener('touchstart', (e: TouchEvent) => {
+            if (!li.classList.contains('targetable')) return
+            
+            state.longPressTargetElement = li as HTMLElement
+            state.longPressTimer = window.setTimeout(() => {
+                state.longPressActive = true
+                li.classList.add('long-press-active')
+                document.body.classList.add('long-press-targeting')
+                
+                // Haptic feedback if available
+                if (navigator.vibrate) {
+                    navigator.vibrate(50)
+                }
+            }, 400)
+        })
+        
+        li.addEventListener('touchend', (e: TouchEvent) => {
+            if (state.longPressTimer) {
+                clearTimeout(state.longPressTimer)
+                state.longPressTimer = null
+            }
+            
+            if (state.longPressActive && li.classList.contains('targetable')) {
+                e.preventDefault()
+                sendMessage({ type: 'throwPaperball', targetUserId: userId })
+            }
+            
+            state.longPressActive = false
+            state.longPressTargetElement = null
+            li.classList.remove('long-press-active')
+            document.body.classList.remove('long-press-targeting')
+        })
+        
+        li.addEventListener('touchcancel', () => {
+            if (state.longPressTimer) {
+                clearTimeout(state.longPressTimer)
+                state.longPressTimer = null
+            }
+            state.longPressActive = false
+            state.longPressTargetElement = null
+            li.classList.remove('long-press-active')
+            document.body.classList.remove('long-press-targeting')
         })
     })
 }
