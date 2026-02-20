@@ -13,6 +13,7 @@ export interface Ticket {
     description: string
     votes: Record<string, number | null>
     revealed: boolean
+    assignedPoints: number | null
 }
 
 export interface TeamSession {
@@ -40,6 +41,7 @@ export type ServerMessage =
     | { type: 'voteReceived'; ticketId: string; votedCount: number; totalPlayers: number; voterId?: string }
     | { type: 'votesRevealed'; ticket: Ticket; average: number; analysis: VoteAnalysis }
     | { type: 'votesReset'; ticketId: string }
+    | { type: 'storyPointsAssigned'; ticket: Ticket }
     | { type: 'paperballThrown'; fromUserId: string; targetUserId: string; id: string }
     | { type: 'error'; message: string }
 
@@ -50,6 +52,7 @@ export type ClientMessage =
     | { type: 'vote'; points: number }
     | { type: 'revealVotes' }
     | { type: 'resetVotes' }
+    | { type: 'assignStoryPoints'; ticketId: string; points: number | null }
     | { type: 'throwPaperball'; targetUserId: string }
     | { type: 'leave' }
 
@@ -346,6 +349,17 @@ export function handleServerMessage(message: ServerMessage): void {
             }
             break
             
+        case 'storyPointsAssigned':
+            if (state.session) {
+                const ticket = state.session.tickets.find(t => t.id === message.ticket.id)
+                if (ticket) {
+                    ticket.assignedPoints = message.ticket.assignedPoints
+                    renderTickets()
+                    updateObserverControls()
+                }
+            }
+            break
+            
         case 'paperballThrown':
             animatePaperball(message.fromUserId, message.targetUserId, message.id)
             break
@@ -518,6 +532,7 @@ export function renderTickets(): void {
             <div class="ticket-title">
                 ${ticket.revealed ? '<span class="ticket-voted-icon" title="Voted">✓</span>' : ''}
                 ${escapeHtml(ticket.title)}
+                ${ticket.assignedPoints !== null ? `<span class="ticket-points" title="Assigned points">${ticket.assignedPoints}</span>` : ''}
             </div>
             ${ticket.description ? `<div class="ticket-desc">${escapeHtml(ticket.description)}</div>` : ''}
         </li>
@@ -889,8 +904,53 @@ function showResults(ticket: Ticket, average: number, analysis: VoteAnalysis): v
         resultsHtml += '</div>'
     }
     
+    // Add story point assignment section for observers
+    if (isCurrentObserver()) {
+        resultsHtml += `
+            <div class="assign-points-section">
+                <div class="assign-points-header">Assign Story Points</div>
+                <div class="assign-points-current">
+                    ${ticket.assignedPoints !== null 
+                        ? `<span>Current: <strong>${ticket.assignedPoints}</strong> points</span>` 
+                        : '<span class="no-assignment">Not assigned yet</span>'}
+                </div>
+                <div class="assign-points-controls">
+                    <button class="assign-quick-btn" data-points="${analysis.recommendedPoint}">
+                        Quick Assign ${analysis.recommendedPoint}
+                    </button>
+                    <div class="assign-manual-group">
+                        <label for="assign-points-select">Or select:</label>
+                        <select id="assign-points-select">
+                            <option value="">-- Choose points --</option>
+                            ${POINT_VALUES.map(p => `<option value="${p}"${ticket.assignedPoints === p ? ' selected' : ''}>${p}</option>`).join('')}
+                        </select>
+                        <button class="assign-manual-btn">Assign</button>
+                    </div>
+                </div>
+            </div>
+        `
+    }
+    
     votesDisplay.innerHTML = resultsHtml
     averageDisplay.textContent = `Average: ${average}`
+    
+    // Add event listeners for observer controls
+    if (isCurrentObserver()) {
+        const quickBtn = votesDisplay.querySelector<HTMLButtonElement>('.assign-quick-btn')
+        const selectEl = votesDisplay.querySelector<HTMLSelectElement>('#assign-points-select')
+        const manualBtn = votesDisplay.querySelector<HTMLButtonElement>('.assign-manual-btn')
+        
+        quickBtn?.addEventListener('click', () => {
+            sendMessage({ type: 'assignStoryPoints', ticketId: ticket.id, points: analysis.recommendedPoint })
+        })
+        
+        manualBtn?.addEventListener('click', () => {
+            const points = selectEl?.value ? parseInt(selectEl.value, 10) : null
+            if (points !== null) {
+                sendMessage({ type: 'assignStoryPoints', ticketId: ticket.id, points })
+            }
+        })
+    }
 }
 
 function animatePaperball(fromUserId: string, targetUserId: string, id: string): void {

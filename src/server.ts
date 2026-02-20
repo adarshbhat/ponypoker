@@ -17,6 +17,7 @@ export interface Ticket {
     description: string
     votes: Record<string, number | null>
     revealed: boolean
+    assignedPoints: number | null
 }
 
 export interface TeamSession {
@@ -43,6 +44,7 @@ export type ClientMessage =
     | { type: 'vote'; points: number }
     | { type: 'revealVotes' }
     | { type: 'resetVotes' }
+    | { type: 'assignStoryPoints'; ticketId: string; points: number | null }
     | { type: 'throwPaperball'; targetUserId: string }
     | { type: 'leave' }
 
@@ -55,6 +57,7 @@ export type ServerMessage =
     | { type: 'voteReceived'; ticketId: string; votedCount: number; totalPlayers: number; voterId?: string }
     | { type: 'votesRevealed'; ticket: Ticket; average: number; analysis: VoteAnalysis }
     | { type: 'votesReset'; ticketId: string }
+    | { type: 'storyPointsAssigned'; ticket: Ticket }
     | { type: 'paperballThrown'; fromUserId: string; targetUserId: string; id: string }
     | { type: 'error'; message: string }
 
@@ -268,7 +271,8 @@ export function handleMessage(ws: WebSocket, message: ClientMessage, wss: WebSoc
                 title: message.title,
                 description: message.description,
                 votes: {},
-                revealed: false
+                revealed: false,
+                assignedPoints: null
             }
             session.tickets.push(ticket)
             console.log(`[Session ${clientInfo.sessionCode}] Ticket added - id: ${ticket.id}, title: "${ticket.title}", total tickets: ${session.tickets.length}`)
@@ -420,6 +424,41 @@ export function handleMessage(ws: WebSocket, message: ClientMessage, wss: WebSoc
             session.votingRevealed = false
             ticket.revealed = false
             broadcast(clientInfo.sessionCode, { type: 'votesReset', ticketId: ticket.id }, wss)
+            break
+        }
+        
+        case 'assignStoryPoints': {
+            const clientInfo = clientSessions.get(ws)
+            if (!clientInfo) {
+                ws.send(JSON.stringify({ type: 'error', message: 'Not in a session' } as ServerMessage))
+                return
+            }
+            
+            const session = sessions[clientInfo.sessionCode]
+            const user = session.users.find(u => u.id === clientInfo.userId)
+            if (!user || user.role !== 'observer') {
+                ws.send(JSON.stringify({ type: 'error', message: 'Only observers can assign story points' } as ServerMessage))
+                return
+            }
+            
+            const ticket = session.tickets.find(t => t.id === message.ticketId)
+            if (!ticket) {
+                ws.send(JSON.stringify({ type: 'error', message: 'Ticket not found' } as ServerMessage))
+                return
+            }
+            
+            if (!ticket.revealed) {
+                ws.send(JSON.stringify({ type: 'error', message: 'Voting must be completed before assigning story points' } as ServerMessage))
+                return
+            }
+            
+            if (message.points !== null && !POINT_VALUES.includes(message.points)) {
+                ws.send(JSON.stringify({ type: 'error', message: 'Invalid point value' } as ServerMessage))
+                return
+            }
+            
+            ticket.assignedPoints = message.points
+            broadcast(clientInfo.sessionCode, { type: 'storyPointsAssigned', ticket }, wss)
             break
         }
         
